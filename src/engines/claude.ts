@@ -45,7 +45,7 @@ export interface ClaudeAgentSpec {
   timeoutMs: number;
   maxBudgetUsd: number | null;
   streamPath: string;
-  apiKey: string;
+  credential: ClaudeCredential;
   apiBaseUrl: string | null;
   claudeBin: string;
   emptyMcpConfigPath: string;
@@ -192,6 +192,16 @@ export function ensureEmptyMcpConfig(dataDir: string): string {
   return p;
 }
 
+/** What a claude agent authenticates with: an API key (or gateway token), or a Claude
+ *  subscription token from `claude setup-token`. */
+export type ClaudeCredential = { kind: 'apiKey' | 'authToken'; value: string };
+
+/** The CLI takes a subscription token only as CLAUDE_CODE_OAUTH_TOKEN; as
+ *  ANTHROPIC_API_KEY it would go out as an x-api-key and be refused. */
+export function credentialEnv(c: ClaudeCredential): Record<string, string> {
+  return c.kind === 'authToken' ? { CLAUDE_CODE_OAUTH_TOKEN: c.value } : { ANTHROPIC_API_KEY: c.value };
+}
+
 export function readApiKey(file: string): string {
   const t = readFileSync(file, 'utf8').trim();
   if (!t) throw new Error(`API key file ${file} is empty`);
@@ -239,7 +249,7 @@ export function runClaudeAgent(spec: ClaudeAgentSpec, signal: AbortSignal, onAct
   for (const k of ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM']) {
     if (process.env[k] !== undefined) env[k] = process.env[k];
   }
-  env.ANTHROPIC_API_KEY = spec.apiKey;
+  Object.assign(env, credentialEnv(spec.credential));
   if (spec.apiBaseUrl) {
     env.ANTHROPIC_BASE_URL = spec.apiBaseUrl;
     // attribution for a gateway ledger; stripped by the gateway before upstream
