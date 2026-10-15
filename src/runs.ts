@@ -602,6 +602,12 @@ export class RunManager {
         cwd: a.cwd, timeoutMs: a.timeoutMs, maxBudgetUsd: reserved.usd, streamPath: this.store.agentStreamPath(meta, n),
         dataDir: realpathSync(this.cfg.dataDir),
       };
+      // Every caller's API key and subscription token files: no agent may read its own
+      // caller's credentials or another's. Claude's rules are strings (configured and resolved
+      // paths); codex's sandbox mounts over what it denies, so it gets existing paths only.
+      const credFiles = this.cfg.callers.flatMap((c) => [c.apiKeyFile, c.authTokenFile]).filter((f): f is string => !!f);
+      const credReal = credFiles.map(safeRealpath).filter((p): p is string => !!p);
+      const secretFiles = [...new Set([...credFiles, ...credReal])];
       if (a.engine === 'codex') {
         const codex = this.cfg.engines.codex;
         if (reserved.tokens < a.maxTokens) this.store.emit(meta.id, { type: 'log', message: `[swarmbase] agent ${n}: maxTokens ${a.maxTokens} cut to ${reserved.tokens}, what is left of the run's token budget` });
@@ -614,8 +620,7 @@ export class RunManager {
           codexBin: codex.bin,
           sandbox: codex.sandbox,
           extraRoBinds: codex.extraRoBinds,
-          denyExtra: [run.caller.apiKeyFile, run.caller.authTokenFile, this.cfg.configPath]
-            .map((f) => (f ? safeRealpath(f) : null)).filter((p): p is string => !!p),
+          denyExtra: [...new Set(credReal), this.cfg.configPath].filter((p): p is string => !!p),
         }, this.meter!, slot.ac.signal, onActivity);
         if (o.unpriced) this.store.emit(meta.id, { type: 'log', message: `[swarmbase] agent ${n}: no price row for ${a.model}; ${o.tokens} tokens charged as $0 against the USD budget (set config.prices to shadow-price it); the run's token budget bounds it` });
         spentTokens = o.tokens;
@@ -629,6 +634,7 @@ export class RunManager {
           apiBaseUrl: this.cfg.engines.claude.baseUrl,
           claudeBin: this.cfg.engines.claude.bin,
           emptyMcpConfigPath: this.emptyMcpConfigPath,
+          secretFiles,
         }, slot.ac.signal, onActivity);
       }
     } catch (e) {

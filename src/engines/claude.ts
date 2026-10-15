@@ -51,6 +51,8 @@ export interface ClaudeAgentSpec {
   emptyMcpConfigPath: string;
   /** SwarmBase data dir (realpath), for the deny rules. */
   dataDir: string;
+  /** Credential files of every caller (absolute), denied by path. */
+  secretFiles: string[];
 }
 
 export interface AgentOutcome {
@@ -86,10 +88,12 @@ export function allowRules(profile: Profile, cwd: string): string[] {
  *  Inside the SwarmBase data dir only the secrets and run metadata are denied: a
  *  blanket deny on the data dir would also cover runs/<id>/work, the default cwd,
  *  and deny beats allow (verified: the agent could not read its own work dir). */
-export function denyRules(dataDir: string): string[] {
+export function denyRules(dataDir: string, secretFiles: string[] = []): string[] {
   const h = homedir();
   const d = dataDir.replace(/\/+$/, '');
   return [
+    // every caller's credential files by path, wherever the config puts them
+    ...secretFiles.map((f) => `Read(/${f})`),
     `Read(/${d}/*.token)`, `Read(/${d}/*.key)`, `Read(/${d}/config.json*)`, `Read(/${d}/outbox.json)`, `Read(/${d}/live-agents.json)`,
     ...['meta.json', 'events.jsonl', 'journal.jsonl', 'script.js', 'args.json', 'result.json', 'agents/**'].map((f) => `Read(/${d}/runs/*/${f})`),
     `Read(/${h}/.ssh/**)`, `Read(/${h}/.claude/**)`, `Read(/${h}/.claude.json)`,
@@ -230,7 +234,7 @@ export function buildArgs(spec: ClaudeAgentSpec): string[] {
     '--strict-mcp-config',
     `--mcp-config=${spec.emptyMcpConfigPath}`,
     '--setting-sources=',
-    `--settings=${JSON.stringify({ permissions: { deny: denyRules(spec.dataDir) } })}`,
+    `--settings=${JSON.stringify({ permissions: { deny: denyRules(spec.dataDir, spec.secretFiles) } })}`,
     '--permission-mode=dontAsk',
     `--tools=${tools.join(',')}`,
   ];

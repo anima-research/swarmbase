@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseConfig } from '../src/config.js';
-import { credentialEnv } from '../src/engines/claude.js';
+import { credentialEnv, denyRules } from '../src/engines/claude.js';
 
 const base = { name: 'r', tokenSha256: 'a'.repeat(64) };
 
@@ -27,4 +27,10 @@ test('the codex engine needs apiKeyFile; a subscription token alone does not do'
     () => parseConfig({ callers: [{ ...base, authTokenFile: '/tmp/r.oauth', engines: ['codex'] } as any] }),
     /codex engine, which needs apiKeyFile/,
   );
+});
+
+test('claude agents are denied every configured credential file by path', () => {
+  const rules = denyRules('/srv/sb', ['/home/u/.swarmbase/a.oauth', '/home/u/.swarmbase/b.key']);
+  assert.ok(rules.includes('Read(//home/u/.swarmbase/a.oauth)'));
+  assert.ok(rules.includes('Read(//home/u/.swarmbase/b.key)'));
 });
