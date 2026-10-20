@@ -72,6 +72,7 @@ so no host-realm object is reachable from the script. A watchdog fails a run who
     "name": "resident-a",
     "tokenSha256": "<sha256 of the caller's MCPL token>",      // the token itself is never stored here
     "apiKeyFile": "~/.swarmbase/resident-a.key",               // API key or gateway token, 0600
+    // or, for claude only: "authTokenFile": "~/.swarmbase/resident-a.oauth"  // `claude setup-token`, 0600
     "engines": ["claude", "codex"], "maxProfile": "read",
     "cwdRoots": ["/srv/resident-a/files"],
     "defaultModels": { "claude": "claude-sonnet-5-5", "codex": "gpt-6-astra" },
@@ -85,7 +86,10 @@ so no host-realm object is reachable from the script. A watchdog fails a run who
 To add a caller:
 1. Generate a token: `openssl rand -hex 24 > ~/.swarmbase/mcpl-<name>.token`.
 2. Put the token's sha256 in the config as `tokenSha256`.
-3. Give the caller its own API key file, mode 0600.
+3. Give the caller its own API key file (`apiKeyFile`), mode 0600. A caller on a Claude subscription gets
+   `authTokenFile` instead: a token from `claude setup-token`, passed to Claude Code as
+   `CLAUDE_CODE_OAUTH_TOKEN`. With both set, claude agents use the subscription token and codex agents
+   the API key file; codex needs `apiKeyFile`.
 4. Restart the daemon.
 
 The host connects to `ws://127.0.0.1:7360/mcpl` with that token.
