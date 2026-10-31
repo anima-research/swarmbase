@@ -8,10 +8,11 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './config.js';
 import type { RunEndListener } from './runs.js';
-import type { Session } from './session.js';
+import { RUN_END_TAGS, runEndTags, type Session } from './session.js';
 import type { RunMeta, RunStore } from './store.js';
 
-interface Notice { eventId: string; runId: string; text: string; createdAt: string }
+/** `tags` is absent on notices an older build left in the outbox; those go out with RUN_END_TAGS. */
+interface Notice { eventId: string; runId: string; text: string; createdAt: string; tags?: string[] }
 
 const OUTBOX_CAP = 50;
 
@@ -97,7 +98,10 @@ export class Notifier implements RunEndListener {
   }
 
   runEnded(meta: RunMeta): void {
-    this.enqueue(meta.caller, { eventId: `${meta.id}:end`, runId: meta.id, text: this.compose(meta), createdAt: new Date().toISOString() });
+    this.enqueue(meta.caller, {
+      eventId: `${meta.id}:end`, runId: meta.id, text: this.compose(meta), createdAt: new Date().toISOString(),
+      tags: meta.status === 'running' ? [...RUN_END_TAGS] : runEndTags(meta.status),
+    });
   }
 
   enqueue(caller: string, notice: Notice): void {
@@ -119,7 +123,7 @@ export class Notifier implements RunEndListener {
         const q = this.outbox[caller];
         if (!q || q.length === 0) break;
         const notice = q[0];
-        const ok = await session.push(notice.eventId, notice.text, { kind: 'run-end', runId: notice.runId });
+        const ok = await session.push(notice.eventId, notice.text, { kind: 'run-end', runId: notice.runId }, notice.tags ?? [...RUN_END_TAGS]);
         if (!ok) { failed = true; break; }
         // Remove by id: enqueue() may have trimmed the queue while we awaited.
         const cur = this.outbox[caller] ?? [];
