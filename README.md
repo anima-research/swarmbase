@@ -31,8 +31,11 @@ Why it's a daemon and not a host module:
 | `guide` | the authoring reference (`src/guide.ts`) |
 
 There are two feature sets. `swarmbase` uses `tools`. `swarmbase.notify` uses `pushEvents` and carries run-completion
-notices: eventId `<runId>:end`, origin `{source: "swarmbase", kind: "run-end", runId}`. A host whose wake policy skips
-unrecognized push events needs a rule placed before the skips, for example on agent-framework:
+notices: eventId `<runId>:end`, origin `{source: "swarmbase", kind: "run-end", runId}`, tags `surface:done`,
+`swarmbase:run-end` and `swarmbase:<status>` (`completed`, `failed`, `cancelled` or `interrupted`). The feature set
+declares these tags in an RFC-001 `tagOntology` that suggests waking immediately on `swarmbase:run-end`. A host offers
+that suggestion to its agent or operator and applies it only on acceptance, so a host whose wake policy skips
+unrecognized push events still needs a rule placed before the skips, for example on agent-framework:
 
 ```json
 { "name": "swarmbase-wake", "match": { "scope": ["mcpl:push-event"], "source": "swarmbase" }, "behavior": "always" }
