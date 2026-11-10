@@ -48,7 +48,7 @@ const failedFiles = args.files.filter((f, i) => !found[i])
 // A barrier on purpose: drop exact repeats, and skip verification entirely when there are none.
 const seen = new Set()
 const bugs = found.filter(Boolean).flatMap(r => r.bugs).filter(b => {
-  const key = b.file + ':' + b.line + ':' + b.claim
+  const key = JSON.stringify([b.file, b.line, b.claim])
   if (seen.has(key)) return false
   seen.add(key)
   return true
