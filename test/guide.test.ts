@@ -21,7 +21,8 @@ function fake(s: any): unknown {
   return 'stub';
 }
 
-function stubRun(script: string, args: unknown): Promise<{ end: any; agents: number }> {
+/** `spentFrom`: agents in this phase get the runner's budget error, as when the budget runs out. */
+function stubRun(script: string, args: unknown, spentFrom?: string): Promise<{ end: any; agents: number }> {
   return new Promise((res) => {
     const child = fork(runner, [], { execArgv: ['--experimental-permission', `--allow-fs-read=${root}/*`, '--no-warnings'], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     let agents = 0;
@@ -32,7 +33,9 @@ function stubRun(script: string, args: unknown): Promise<{ end: any; agents: num
       if (m.type === 'agent') {
         agents++;
         const opts = JSON.parse(m.optsJson || '{}') ?? {};
-        child.send({ type: 'agentResult', callId: m.callId, json: JSON.stringify(opts.schema ? fake(opts.schema) : 'stub text') });
+        child.send(spentFrom && opts.phase === spentFrom
+          ? { type: 'agentError', callId: m.callId, message: 'budget exhausted: $5.00 of $5.00 spent' }
+          : { type: 'agentResult', callId: m.callId, json: JSON.stringify(opts.schema ? fake(opts.schema) : 'stub text') });
       }
       if (m.type === 'done' || m.type === 'fail') finish(m);
     });
@@ -61,3 +64,13 @@ for (const [i, code] of examples.entries()) {
     assert.ok(r.agents > 0, 'spawned at least one agent');
   });
 }
+
+test('the research example keeps its notes when the budget runs out at the synthesis', async () => {
+  const code = examples.find((c) => /name: 'research'/.test(c));
+  assert.ok(code, 'research example present');
+  const r = await stubRun(code, args, 'Synthesize');
+  assert.equal(r.end.type, 'done', `ended ${JSON.stringify(r.end).slice(0, 300)}`);
+  const out = JSON.parse(r.end.json);
+  assert.equal(out.answer, null);
+  assert.ok(out.notes.length > 0, 'notes returned');
+});

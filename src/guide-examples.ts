@@ -4,28 +4,31 @@
 export const GUIDE_EXAMPLES: { title: string; code: string }[] = [
   {
     title: "Read many files, check each, synthesize",
-    code: `// Fits: one independent read per file, a cheap check on each, then one synthesis.
+    code: `// Fits: one independent read per file, a check of each summary against its file, then one synthesis.
 // args: { dir: '/abs/notes', files: ['a.md', 'b.md'] }
-export const meta = { name: 'survey-notes', description: 'Summarize each file, check each summary, synthesize' }
+export const meta = { name: 'survey-notes', description: 'Summarize each file, check each summary against it, synthesize' }
 phase('Read')
 const files = args.files
 const notes = await pipeline(files,
   f => agent(\`Read \${f} and summarize its argument in 5 bullets.\`, { label: f, phase: 'Read', profile: 'read', cwd: args.dir }),
-  (summary, f) => summary && agent(\`Rate this summary of \${f} for fidelity 1-5 and say why:\\n\${summary}\`,
-    { label: 'check ' + f, phase: 'Check', profile: 'think', model: 'haiku',
+  (summary, f) => summary && agent(\`Read \${f}, then rate this summary of it for fidelity 1-5 and say why:\\n\${summary}\`,
+    { label: 'check ' + f, phase: 'Check', profile: 'read', cwd: args.dir, model: 'haiku',
       schema: { type: 'object', properties: { score: { type: 'integer' }, why: { type: 'string' } }, required: ['score', 'why'] } })
       .then(v => ({ f, summary, v })))
 phase('Synthesize')
 const good = notes.filter(Boolean).filter(n => n.v && n.v.score >= 4)
+const leftOut = files.filter(f => !good.some(n => n.f === f))
 log(\`\${good.length}/\${files.length} summaries passed the check\`)
-return await agent('Synthesize these summaries into one page:\\n' + good.map(n => n.f + ':\\n' + n.summary).join('\\n\\n'), { profile: 'think' })
+if (!good.length) return { page: null, leftOut }
+const page = await agent('Synthesize these summaries into one page:\\n' + good.map(n => n.f + ':\\n' + n.summary).join('\\n\\n'), { profile: 'think' })
+return { page, leftOut }
 `,
   },
   {
     title: "Review: find, then try to refute",
     code: `// Fits: checking a branch's changes for bugs, where a false alarm costs your reader's time.
 // args: { dir: '/abs/repo', files: ['src/a.ts', 'src/b.ts'], diffs: { 'src/a.ts': '…' } }
-// Scout first: run \`git diff\` yourself and pass each file's diff. Read agents have no shell.
+// Scout first: run \`git diff\` yourself and pass each file's diff. Read agents on the claude engine have no shell.
 export const meta = { name: 'review', description: 'Find bugs per changed file, then try to refute each one' }
 const BUGS = { type: 'object', required: ['bugs'], properties: { bugs: { type: 'array', items: {
   type: 'object', required: ['file', 'line', 'claim'],
@@ -40,7 +43,8 @@ const found = await parallel(args.files.map(f => () => agent(
   \`files it calls, for context. Ignore style. For each bug give the file, the line and one sentence a reader could \` +
   \`check against the code. Return an empty list if you find none.\`,
   { label: f, phase: 'Find', profile: 'read', cwd: args.dir, schema: BUGS })))
-// A barrier on purpose: dedupe across all files before paying for verification.
+const failedFiles = args.files.filter((f, i) => !found[i])
+// A barrier on purpose: dedupe the candidates, and skip verification entirely when there are none.
 const seen = new Set()
 const bugs = found.filter(Boolean).flatMap(r => r.bugs).filter(b => {
   const key = b.file + ':' + b.line
@@ -48,8 +52,8 @@ const bugs = found.filter(Boolean).flatMap(r => r.bugs).filter(b => {
   seen.add(key)
   return true
 })
-log(\`\${bugs.length} distinct candidates from \${args.files.length} files\`)
-if (!bugs.length) return { bugs: [], filesChecked: args.files.length }
+log(\`\${bugs.length} distinct candidates; \${failedFiles.length} of \${args.files.length} files were not reviewed\`)
+if (!bugs.length) return { bugs: [], refuted: [], unverified: [], failedFiles }
 
 phase('Verify')
 const judged = await parallel(bugs.map(b => async () => {
@@ -57,11 +61,14 @@ const judged = await parallel(bugs.map(b => async () => {
     \`Someone claims there is a bug at \${b.file}:\${b.line} in \${args.dir}: "\${b.claim}". \` +
     \`Read the code and try to show the claim is wrong. If the code does not clearly confirm it, answer refuted: true.\`,
     { label: \`refute \${b.file}:\${b.line} #\${i}\`, phase: 'Verify', profile: 'read', cwd: args.dir, schema: VERDICT })))).filter(Boolean)
-  return { ...b, survives: votes.filter(v => !v.refuted).length >= 2 }
+  return { ...b, votes: votes.length, upheld: votes.filter(v => !v.refuted).length }
 }))
-const kept = judged.filter(b => b.survives)
-log(\`\${kept.length} of \${bugs.length} survived three skeptics\`)
-return { bugs: kept, refuted: bugs.length - kept.length, filesChecked: args.files.length }
+// Two of three skeptics decide either way; with too few votes back, a candidate was never checked.
+const kept = judged.filter(b => b.upheld >= 2)
+const refuted = judged.filter(b => b.votes - b.upheld >= 2)
+const unverified = judged.filter(b => b.upheld < 2 && b.votes - b.upheld < 2)
+log(\`\${kept.length} kept, \${refuted.length} refuted, \${unverified.length} unverified\`)
+return { bugs: kept, refuted, unverified, failedFiles }
 `,
   },
   {
@@ -80,7 +87,8 @@ const lists = await parallel(ANGLES.map(a => () => agent(
   { label: a, phase: 'Sweep', profile: 'read', schema: SOURCES })))
 // A barrier on purpose: the same source turns up under several angles.
 const sources = [...new Map(lists.filter(Boolean).flatMap(l => l.sources).map(s => [s.url, s])).values()]
-log(\`\${sources.length} distinct sources from \${ANGLES.length} angles\`)
+const anglesFailed = ANGLES.filter((a, i) => !lists[i])
+log(\`\${sources.length} distinct sources; \${anglesFailed.length} of \${ANGLES.length} angles failed\`)
 
 phase('Read')
 const notes = (await parallel(sources.map(s => () => agent(
@@ -94,13 +102,13 @@ const answer = await agent(
   \`Question: \${args.question}\\nUsing only the notes below, write a cited answer (cite by URL) and mark every point \` +
   \`where the sources disagree.\\n\\n\` + notes.map(n => \`## \${n.url}\\n\${n.notes}\`).join('\\n\\n'),
   { label: 'synthesis', phase: 'Synthesize', profile: 'think' }).catch(e => { log(\`synthesis: \${e.message}\`); return null })
-if (!answer) return { answer: null, notes, sourcesRead: notes.length, sourcesFound: sources.length }
+if (!answer) return { answer: null, notes, sourcesRead: notes.length, sourcesFound: sources.length, anglesFailed }
 // The critic's list is the brief for your next run, not something to bolt on here.
 const gaps = await agent(
   \`Here is an answer to "\${args.question}":\\n\\n\${answer}\\n\\nWhat is missing or unsupported: a claim with no source, \` +
   \`an angle nobody searched, a source that should have been read? Return a short list, or "none".\`,
   { label: 'critic', phase: 'Synthesize', profile: 'think' }).catch(e => \`critic did not run: \${e.message}\`)
-return { answer, gaps, sourcesRead: notes.length, sourcesFound: sources.length }
+return { answer, gaps, sourcesRead: notes.length, sourcesFound: sources.length, anglesFailed }
 `,
   },
   {
