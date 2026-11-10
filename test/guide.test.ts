@@ -22,18 +22,21 @@ function fake(s: any): unknown {
 }
 
 /** `spentFrom`: agents in this phase get the runner's budget error, as when the budget runs out. */
-function stubRun(script: string, args: unknown, spentFrom?: string): Promise<{ end: any; agents: number }> {
+function stubRun(script: string, args: unknown, spentFrom?: string): Promise<{ end: any; agents: number; refused: number }> {
   return new Promise((res) => {
     const child = fork(runner, [], { execArgv: ['--experimental-permission', `--allow-fs-read=${root}/*`, '--no-warnings'], stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     let agents = 0;
+    let refused = 0;
     let settled = false;
-    const finish = (end: any) => { if (settled) return; settled = true; clearTimeout(timer); child.kill(); res({ end, agents }); };
+    const finish = (end: any) => { if (settled) return; settled = true; clearTimeout(timer); child.kill(); res({ end, agents, refused }); };
     const timer = setTimeout(() => finish({ type: 'timeout' }), 20_000);
     child.on('message', (m: any) => {
       if (m.type === 'agent') {
         agents++;
         const opts = JSON.parse(m.optsJson || '{}') ?? {};
-        child.send(spentFrom && opts.phase === spentFrom
+        const spent = spentFrom !== undefined && opts.phase === spentFrom;
+        if (spent) refused++;
+        child.send(spent
           ? { type: 'agentError', callId: m.callId, message: 'budget exhausted: $5.00 of $5.00 spent' }
           : { type: 'agentResult', callId: m.callId, json: JSON.stringify(opts.schema ? fake(opts.schema) : 'stub text') });
       }
@@ -71,6 +74,7 @@ test('the research example keeps its notes when the budget runs out at the synth
   const r = await stubRun(code, args, 'Synthesize');
   assert.equal(r.end.type, 'done', `ended ${JSON.stringify(r.end).slice(0, 300)}`);
   const out = JSON.parse(r.end.json);
+  assert.ok(r.refused > 0, 'the synthesis was attempted');
   assert.equal(out.answer, null);
   assert.ok(out.notes.length > 0, 'notes returned');
 });

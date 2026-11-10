@@ -21,7 +21,8 @@ const leftOut = files.filter(f => !good.some(n => n.f === f))
 log(\`\${good.length}/\${files.length} summaries passed the check\`)
 if (!good.length) return { page: null, leftOut }
 const page = await agent('Synthesize these summaries into one page:\\n' + good.map(n => n.f + ':\\n' + n.summary).join('\\n\\n'), { profile: 'think' })
-return { page, leftOut }
+  .catch(e => { log(\`synthesis: \${e.message}\`); return null })  // keep the summaries if the last step fails
+return page ? { page, leftOut } : { page: null, summaries: good.map(n => ({ file: n.f, summary: n.summary })), leftOut }
 `,
   },
   {
@@ -44,10 +45,10 @@ const found = await parallel(args.files.map(f => () => agent(
   \`check against the code. Return an empty list if you find none.\`,
   { label: f, phase: 'Find', profile: 'read', cwd: args.dir, schema: BUGS })))
 const failedFiles = args.files.filter((f, i) => !found[i])
-// A barrier on purpose: dedupe the candidates, and skip verification entirely when there are none.
+// A barrier on purpose: drop exact repeats, and skip verification entirely when there are none.
 const seen = new Set()
 const bugs = found.filter(Boolean).flatMap(r => r.bugs).filter(b => {
-  const key = b.file + ':' + b.line
+  const key = b.file + ':' + b.line + ':' + b.claim
   if (seen.has(key)) return false
   seen.add(key)
   return true
@@ -102,13 +103,14 @@ const answer = await agent(
   \`Question: \${args.question}\\nUsing only the notes below, write a cited answer (cite by URL) and mark every point \` +
   \`where the sources disagree.\\n\\n\` + notes.map(n => \`## \${n.url}\\n\${n.notes}\`).join('\\n\\n'),
   { label: 'synthesis', phase: 'Synthesize', profile: 'think' }).catch(e => { log(\`synthesis: \${e.message}\`); return null })
-if (!answer) return { answer: null, notes, sourcesRead: notes.length, sourcesFound: sources.length, anglesFailed }
+const unread = sources.filter(s => !notes.some(n => n.url === s.url)).map(s => s.url)
+if (!answer) return { answer: null, notes, unread, anglesFailed }
 // The critic's list is the brief for your next run, not something to bolt on here.
 const gaps = await agent(
   \`Here is an answer to "\${args.question}":\\n\\n\${answer}\\n\\nWhat is missing or unsupported: a claim with no source, \` +
   \`an angle nobody searched, a source that should have been read? Return a short list, or "none".\`,
   { label: 'critic', phase: 'Synthesize', profile: 'think' }).catch(e => \`critic did not run: \${e.message}\`)
-return { answer, gaps, sourcesRead: notes.length, sourcesFound: sources.length, anglesFailed }
+return { answer, gaps, sourcesRead: notes.length, unread, anglesFailed }
 `,
   },
   {
@@ -126,12 +128,14 @@ const proposals = (await parallel(ANGLES.map((a, i) => () => agent(
 log(\`\${proposals.length} of \${ANGLES.length} proposals came back\`)
 
 phase('Judge')
-return await agent(
+const verdict = await agent(
   \`Problem: \${args.problem}\\nContext: \${args.context}\\n\\n\` +
   proposals.map((p, i) => \`### Proposal \${i + 1}\\n\${p}\`).join('\\n\\n') +
   \`\\n\\nScore each proposal 1-10 against the problem, pick the strongest, and improve it with anything better \` +
   \`from the others. Return the recommendation first, then one line per score.\`,
   { label: 'judge', phase: 'Judge', profile: 'think', effort: 'high' })
+  .catch(e => { log(\`judge: \${e.message}\`); return null })  // the proposals are still worth returning
+return { verdict, proposals }
 `,
   },
 ];

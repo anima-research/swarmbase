@@ -128,8 +128,9 @@ Pick what fits the task and combine them.
 - **Say what you dropped** — if you cap or sample, \`log()\` it and put it in the return value; silent truncation
   reads as full coverage.
 - **Keep money for the end** — agent() throws once the budget is spent, so a run that spends it all on its
-  fan-out fails at its last stage. Size the fan-out with \`budget.remaining()\`, and catch the final stages
-  (\`agent(…).catch(…)\`) so the run returns what it has; \`resume\` can finish it later with a new budget.
+  fan-out fails at its last stage. Size the next fan-out at a barrier, when nothing is in flight, from
+  \`budget.remaining()\` (it counts finished agents only), and catch the final stages (\`agent(…).catch(…)\`) so
+  the run returns what it has; \`resume\` can finish it later with a new budget.
 - **A barrier only when a stage needs everything** — dedupe across all finders, stop early when nothing was found,
   or compare each item with the others. Otherwise transform inside a pipeline stage.
 
