@@ -105,6 +105,9 @@ export interface Config {
   /** Extra/override model price rows (USD per MTok) for estimating killed agents' spend
    *  (and all of a codex agent's spend: the Codex CLI reports tokens, not cost). */
   prices?: Record<string, { in: number; out: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number }>;
+  /** MCP servers every claude subagent with tools (`read`, `write`) is started with, in the CLI's own
+   *  `mcpServers` format, e.g. a search or page-fetch server. Their use is not counted against a run's budget. */
+  agentMcpServers: Record<string, unknown>;
   dashboard: DashboardAccess;
   callers: CallerPolicy[];
 }
@@ -128,6 +131,7 @@ const DEFAULTS: Omit<Config, 'callers'> = {
     codex: { bin: 'codex', baseUrl: null, sandbox: 'bwrap', maxTokensDefault: 3_000_000, maxTokensMax: 3_000_000, extraRoBinds: [] },
   },
   deleteWorkOnEnd: true,
+  agentMcpServers: {},
   dashboard: { viewerLogins: [], adminLogins: [] },
 };
 
@@ -228,6 +232,11 @@ export function parseConfig(raw: Partial<Config>, pathEnv = process.env.PATH ?? 
   cfg.claudeBin = claude.bin;
   cfg.dataDir = expand(cfg.dataDir);
   if (typeof cfg.deleteWorkOnEnd !== 'boolean') throw new Error('config: deleteWorkOnEnd must be true or false');
+  // a name goes into an allow rule (`mcp__<name>`) on a comma-separated flag
+  if (!cfg.agentMcpServers || typeof cfg.agentMcpServers !== 'object' || Array.isArray(cfg.agentMcpServers)
+    || !Object.keys(cfg.agentMcpServers).every((name) => /^[A-Za-z0-9_-]+$/.test(name))) {
+    throw new Error('config: agentMcpServers must be an object of MCP servers whose names use only letters, digits, - and _');
+  }
   const usableMs = (v: unknown): boolean => typeof v === 'number' && v > 0 && Number.isFinite(new Date(Date.now() + v).getTime());
   if (cfg.agentTimeoutMs !== null && !usableMs(cfg.agentTimeoutMs)) throw new Error('config: agentTimeoutMs must be a positive number of milliseconds, or null for none');
   if (!usableMs(cfg.runTimeoutMs)) throw new Error('config: runTimeoutMs must be a positive number of milliseconds');

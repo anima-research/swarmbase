@@ -6,7 +6,8 @@
  * (origin=swarmbase, channel=<runId>, counterparty=<n:label>).
  *
  * Isolation (verified with CLI 2.1.287):
- *  - --strict-mcp-config + empty --mcp-config: no MCP servers.
+ *  - --strict-mcp-config + our own --mcp-config: no MCP servers but the ones the
+ *    operator lists in config.agentMcpServers (none for `think`).
  *  - --setting-sources= (empty): no user/project/local settings, so no hooks,
  *    plugins or env from the operator's config or from a settings dir an agent
  *    planted in its cwd.
@@ -27,7 +28,7 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
-import { createWriteStream, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, createWriteStream, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Profile } from '../config.js';
 import { looksLikeCodexAgent } from './codex.js';
@@ -48,7 +49,10 @@ export interface ClaudeAgentSpec {
   apiKey: string;
   apiBaseUrl: string | null;
   claudeBin: string;
-  emptyMcpConfigPath: string;
+  /** The MCP config handed to the CLI: the operator's agent servers, or the empty one. */
+  mcpConfigPath: string;
+  /** Names of the servers in that file; each one's tools are allowed. */
+  mcpServers: string[];
   /** SwarmBase data dir (realpath), for the deny rules. */
   dataDir: string;
 }
@@ -74,10 +78,10 @@ const TOOLS: Record<Profile, string[]> = {
 };
 
 /** Allow rules; `cwd` must be an absolute, symlink-resolved path. `//` = absolute in rule syntax. */
-export function allowRules(profile: Profile, cwd: string): string[] {
+export function allowRules(profile: Profile, cwd: string, mcpServers: string[] = []): string[] {
   const root = `/${cwd.replace(/\/+$/, '')}/**`;
   if (profile === 'think') return [];
-  const read = [`Read(${root})`, 'WebFetch', 'WebSearch'];
+  const read = [`Read(${root})`, 'WebFetch', 'WebSearch', ...mcpServers.map((name) => `mcp__${name}`)];
   return profile === 'read' ? read : [...read, `Edit(${root})`, `Write(${root})`, 'Bash'];
 }
 
@@ -90,7 +94,7 @@ export function denyRules(dataDir: string): string[] {
   const h = homedir();
   const d = dataDir.replace(/\/+$/, '');
   return [
-    `Read(/${d}/*.token)`, `Read(/${d}/*.key)`, `Read(/${d}/config.json*)`, `Read(/${d}/outbox.json)`, `Read(/${d}/live-agents.json)`,
+    `Read(/${d}/*.token)`, `Read(/${d}/*.key)`, `Read(/${d}/config.json*)`, `Read(/${d}/outbox.json)`, `Read(/${d}/live-agents.json)`, `Read(/${d}/agent-mcp.json)`,
     ...['meta.json', 'events.jsonl', 'journal.jsonl', 'script.js', 'args.json', 'result.json', 'agents/**'].map((f) => `Read(/${d}/runs/*/${f})`),
     `Read(/${h}/.ssh/**)`, `Read(/${h}/.claude/**)`, `Read(/${h}/.claude.json)`,
     `Read(/${h}/.codex/**)`, `Read(/${h}/.portal/**)`, `Read(/${h}/.aws/**)`, `Read(/${h}/.config/**)`,
@@ -195,6 +199,25 @@ export function ensureEmptyMcpConfig(dataDir: string): string {
   return p;
 }
 
+/** The MCP config for agents with tools: config.agentMcpServers, rewritten at each boot.
+ *  0600, since a server's `env` may carry a key. */
+export function ensureAgentMcpConfig(dataDir: string, servers: Record<string, unknown>): string {
+  const p = join(dataDir, 'agent-mcp.json');
+  writeFileSync(p, JSON.stringify({ mcpServers: servers }), { mode: 0o600 });
+  chmodSync(p, 0o600);
+  return p;
+}
+
+/** Appended to the system prompt of every agent that has tools. */
+export function webNote(profile: Profile): string {
+  const browser = profile === 'write'
+    ? ' If they are refused too, or the page needs JavaScript or a click to show what you need, drive a real browser from Bash when one is installed: `agent-browser` (`command -v agent-browser`, then `agent-browser --help`), or else Playwright.'
+    : '';
+  return 'Reading the web: some sites refuse WebFetch (HTTP 402 or 403, or a page with nothing on it). That is the site refusing this fetcher, not a missing page. '
+    + 'Try your other fetch and search tools on the same address before you call it unreachable.' + browser
+    + ' When a page stays closed, say so, and name what you tried.';
+}
+
 export function readApiKey(file: string): string {
   const t = readFileSync(file, 'utf8').trim();
   if (!t) throw new Error(`API key file ${file} is empty`);
@@ -221,14 +244,15 @@ export function buildArgs(spec: ClaudeAgentSpec): string[] {
     `--model=${spec.model}`,
     '--no-session-persistence',
     '--strict-mcp-config',
-    `--mcp-config=${spec.emptyMcpConfigPath}`,
+    `--mcp-config=${spec.mcpConfigPath}`,
     '--setting-sources=',
     `--settings=${JSON.stringify({ permissions: { deny: denyRules(spec.dataDir) } })}`,
     '--permission-mode=dontAsk',
     `--tools=${tools.join(',')}`,
   ];
-  const allow = allowRules(spec.profile, spec.cwd);
+  const allow = allowRules(spec.profile, spec.cwd, spec.mcpServers);
   if (allow.length) args.push(`--allowedTools=${allow.join(',')}`);
+  if (spec.profile !== 'think') args.push(`--append-system-prompt=${webNote(spec.profile)}`);
   if (spec.effort) args.push(`--effort=${spec.effort}`);
   if (spec.schema) args.push(`--json-schema=${JSON.stringify(spec.schema)}`);
   if (spec.maxBudgetUsd !== null) args.push(`--max-budget-usd=${Math.max(0.01, spec.maxBudgetUsd).toFixed(2)}`);
@@ -254,6 +278,10 @@ export function runClaudeAgent(spec: ClaudeAgentSpec, signal: AbortSignal, onAct
     ].join('\n');
   }
   env.DISABLE_AUTOUPDATER = '1';
+  // An agent that drives agent-browser gets a browser of its own (the default session is shared by
+  // everything on the machine), and that browser shuts down by itself once the agent has left it.
+  env.AGENT_BROWSER_SESSION = `swarmbase-${spec.runId}-${spec.n}`;
+  env.AGENT_BROWSER_IDLE_TIMEOUT_MS = '600000';
 
   const out = createWriteStream(spec.streamPath, { flags: 'a' });
   const child = spawn(spec.claudeBin, buildArgs(spec), {

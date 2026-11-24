@@ -1,8 +1,9 @@
 import { GUIDE_EXAMPLES } from './guide-examples.js';
 
 /** The authoring reference handed to callers by the `guide` tool. */
-export function guideText(opts: { defaultModel: string; engines: string[]; defaultModels: Record<string, string>; maxProfile: string; budgetDefault: number; budgetMax: number; tokensDefault: number; tokensMax: number; maxAgents: number; perRun: number; agentTimeoutMs: number | null; runTimeoutMs: number; cwdRoots: string[] }): string {
+export function guideText(opts: { defaultModel: string; engines: string[]; defaultModels: Record<string, string>; maxProfile: string; budgetDefault: number; budgetMax: number; tokensDefault: number; tokensMax: number; maxAgents: number; perRun: number; agentTimeoutMs: number | null; runTimeoutMs: number; cwdRoots: string[]; agentTools: string[] }): string {
   const codex = opts.engines.includes('codex');
+  const agentTools = opts.agentTools.length ? `, and the ${opts.agentTools.join(', ')} tools` : '';
   return `# SwarmBase — writing a run
 
 A run is a JavaScript script that orchestrates subagents. You submit it with \`run\`; it returns a runId at once and
@@ -54,8 +55,10 @@ the top is optional; \`meta.name\` becomes the run label if you didn't give one.
     more codex agents run at once. Codex agents are priced from the daemon's price table when it has a row for the
     model, else they cost $0 against the USD budget and only the token budget bounds them.` : ''}
   - \`profile\` — what the subagent may touch. think: no tools. read: Read/Grep/Glob inside its cwd only,
-    plus WebFetch/WebSearch. write: + Edit/Write inside its cwd, and Bash. Default read; your maximum is
-    "${opts.maxProfile}".${codex ? ` For engine "codex": think = no tools; read = a read-only shell with no network,
+    plus WebFetch/WebSearch${agentTools}. write: + Edit/Write inside its cwd, and Bash. Default read; your maximum is
+    "${opts.maxProfile}". Some sites refuse WebFetch (HTTP 402 or 403): subagents are told to try their other
+    tools on the same address, and a write subagent to open it in a real browser (agent-browser or Playwright,
+    when installed). A read subagent has no browser.${codex ? ` For engine "codex": think = no tools; read = a read-only shell with no network,
     plus the CLI's web search; write = a shell that may write inside its cwd and has network (git, curl).` : ''}
   - \`cwd\` — absolute directory the subagent works in. Default: the run's own scratch dir, which is
     deleted when the run ends (start the run with \`keepWork: true\` to keep it; \`resume\` gets a fresh one).

@@ -87,9 +87,15 @@ so no host-realm object is reachable from the script. A watchdog fails a run who
     "runUsdDefault": 5, "runUsdMax": 25, "maxActiveRuns": 3,
     "runTokensDefault": 10000000, "runTokensMax": 30000000       // per-run token budget for codex agents
   }],
-  "prices": { }                                                 // optional extra rows for spend estimates
+  "prices": { },                                                // optional extra rows for spend estimates
+  "agentMcpServers": {                                          // optional: MCP servers every claude subagent with tools gets
+    "search": { "command": "node", "args": ["/opt/search-mcp/index.js", "--stdio"] }
+  }
 }
 ```
+
+`agentMcpServers` is in the CLI's own `mcpServers` format. Each subagent's CLI starts the servers itself, with the
+subagent's minimal environment plus the entry's `env`. What their tools spend is not counted against a run's budget.
 
 To add a caller:
 1. Generate a token: `openssl rand -hex 24 > ~/.swarmbase/mcpl-<name>.token`.
@@ -174,16 +180,21 @@ as `meter: upstream unable to verify the first certificate` with that hint.
 | profile | CLI tools | confinement |
 |---|---|---|
 | think | none (`--tools=`); StructuredOutput only when a schema is given | — |
-| read | Read, Grep, Glob, WebFetch, WebSearch | `Read(//<cwd>/**)`, which also governs Grep and Glob; reads outside are denied |
+| read | Read, Grep, Glob, WebFetch, WebSearch, and the tools of `agentMcpServers` | `Read(//<cwd>/**)`, which also governs Grep and Glob; reads outside are denied |
 | write | + Edit, Write, Bash | `Edit`/`Write(//<cwd>/**)`; **Bash is not confined**, so trusted callers only |
 
 Every claude subagent also runs with:
 - `--permission-mode=dontAsk`: anything not allowed is denied, never asked.
 - `--setting-sources=` (empty): no user, project or local settings, so a settings dir planted in the cwd is ignored.
 - `--settings` deny rules for credential directories, `.env` and token files.
-- `--strict-mcp-config` with an empty MCP config.
+- `--strict-mcp-config` with SwarmBase's own MCP config: the servers in `agentMcpServers` for `read` and `write`,
+  none for `think`. Each listed server's tools are allowed (`mcp__<name>`).
+- A note appended to the system prompt of `read` and `write` subagents (`webNote` in `src/engines/claude.ts`): a
+  site that refuses WebFetch (HTTP 402 or 403) is to be tried with the other fetch and search tools, and a `write`
+  subagent may then drive a real browser from Bash (agent-browser or Playwright) when one is installed.
 - `--no-session-persistence`.
-- A minimal environment.
+- A minimal environment, plus `AGENT_BROWSER_SESSION` (one per agent) and `AGENT_BROWSER_IDLE_TIMEOUT_MS`, so a
+  `write` subagent that drives agent-browser gets its own browser, which shuts down ten minutes after its last use.
 
 Its cwd is the run's `work/` dir unless the caller's policy allows another; the path is realpath-pinned. A plain
 `--allowedTools=Read` was verified to let Read and Grep reach files outside the cwd, which is why the rules are

@@ -49,7 +49,7 @@ function stubRun(script: string, args: unknown, spentFrom?: string): Promise<{ e
 
 const text = guideText({
   defaultModel: 'sonnet', engines: ['claude'], defaultModels: {}, maxProfile: 'write', budgetDefault: 5, budgetMax: 25,
-  tokensDefault: 0, tokensMax: 0, maxAgents: 200, perRun: 8, agentTimeoutMs: null, runTimeoutMs: 86_400_000, cwdRoots: ['/work'],
+  tokensDefault: 0, tokensMax: 0, maxAgents: 200, perRun: 8, agentTimeoutMs: null, runTimeoutMs: 86_400_000, cwdRoots: ['/work'], agentTools: [],
 });
 const examples = [...text.matchAll(/```js\n([\s\S]*?)```/g)].map((m) => m[1]);
 const args = { dir: '/work/repo', files: ['src/a.ts', 'src/b.ts', 'src/c.ts'], question: 'q', problem: 'p', context: 'c' };
