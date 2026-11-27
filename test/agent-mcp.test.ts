@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.js';
-import { allowRules, buildArgs, ensureEmptyMcpConfig, webNote, type ClaudeAgentSpec } from '../src/engines/claude.js';
+import { allowRules, buildArgs, denyRules, ensureEmptyMcpConfig, webNote, type ClaudeAgentSpec } from '../src/engines/claude.js';
 import { denyPaths } from '../src/engines/codex.js';
 import { guideText } from '../src/guide.js';
 import { RunManager } from '../src/runs.js';
@@ -18,7 +18,7 @@ function spec(over: Partial<ClaudeAgentSpec>): ClaudeAgentSpec {
   return {
     runId: 'r1', n: 1, label: 'a', prompt: 'p', schema: null, model: 'm', effort: null, profile: 'read', cwd: '/work',
     timeoutMs: null, maxBudgetUsd: null, streamPath: '/dev/null', apiKey: 'k', apiBaseUrl: null, claudeBin: 'claude',
-    mcpConfigPath: '/data/agent-mcp.json', mcpServers: ['search'], dataDir: '/data', ...over,
+    mcpConfigPath: '/data/agent-mcp.json', mcpServers: ['search'], dataDir: '/data', configPath: null, ...over,
   };
 }
 const flag = (args: string[], name: string) => args.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -108,6 +108,11 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","total
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mcpServers: {} });
 });
 
-test('codex agents are denied the file that holds the servers', () => {
+test('agents of both engines are denied the files that can hold a server key', () => {
   assert.ok(denyPaths('/data', '/data/runs/r1/agents/1.home').includes('/data/agent-mcp.json'));
+  const deny = denyRules('/data', '/srv/project/swarmbase.json');
+  assert.ok(deny.includes('Read(//data/agent-mcp.json)'));
+  assert.ok(deny.includes('Read(//srv/project/swarmbase.json)')); // a config kept outside the data dir
+  const settings = buildArgs(spec({ configPath: '/srv/project/swarmbase.json' })).find((a) => a.startsWith('--settings='))!;
+  assert.ok(settings.includes('Read(//srv/project/swarmbase.json)'));
 });

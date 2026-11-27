@@ -660,6 +660,7 @@ export class RunManager {
           ...common,
           apiBaseUrl: this.cfg.engines.claude.baseUrl,
           claudeBin: this.cfg.engines.claude.bin,
+          configPath: this.cfg.configPath,
           mcpConfigPath: a.profile === 'think' ? this.emptyMcpConfigPath : this.agentMcpConfigPath,
           mcpServers: a.profile === 'think' ? [] : this.agentMcpServers,
         }, slot.ac.signal, onActivity);

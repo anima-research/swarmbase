@@ -1,8 +1,10 @@
 /**
  * SwarmBase configuration — one JSON file (default ~/.swarmbase/config.json,
- * override with SWARMBASE_CONFIG). Secrets never live in it: callers are
+ * override with SWARMBASE_CONFIG). Secrets do not belong in it: callers are
  * identified by the sha256 of their MCPL token, and each caller's gate token
- * is read from its own 0600 file at agent launch.
+ * is read from its own 0600 file at agent launch. The one place a key can end
+ * up in it is the `env` of an agentMcpServers entry, so agents are denied the
+ * file wherever it sits.
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';

@@ -55,6 +55,8 @@ export interface ClaudeAgentSpec {
   mcpServers: string[];
   /** SwarmBase data dir (realpath), for the deny rules. */
   dataDir: string;
+  /** Where the daemon's config was read from, for the deny rules. */
+  configPath: string | null;
 }
 
 export interface AgentOutcome {
@@ -90,7 +92,7 @@ export function allowRules(profile: Profile, cwd: string, mcpServers: string[] =
  *  Inside the SwarmBase data dir only the secrets and run metadata are denied: a
  *  blanket deny on the data dir would also cover runs/<id>/work, the default cwd,
  *  and deny beats allow (verified: the agent could not read its own work dir). */
-export function denyRules(dataDir: string): string[] {
+export function denyRules(dataDir: string, configPath: string | null = null): string[] {
   const h = homedir();
   const d = dataDir.replace(/\/+$/, '');
   return [
@@ -99,6 +101,8 @@ export function denyRules(dataDir: string): string[] {
     `Read(/${h}/.ssh/**)`, `Read(/${h}/.claude/**)`, `Read(/${h}/.claude.json)`,
     `Read(/${h}/.codex/**)`, `Read(/${h}/.portal/**)`, `Read(/${h}/.aws/**)`, `Read(/${h}/.config/**)`,
     'Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.token)', 'Read(**/*credentials*)',
+    // the config may sit outside the data dir, and an agentMcpServers entry's `env` can hold a key
+    ...(configPath ? [`Read(/${configPath})`] : []),
     // On an untagged machine, a request to its own tailnet name carries its owner's login, so a
     // fetch would reach the dashboard (every caller's runs) and other tailnet services as them.
     'WebFetch(domain:*.ts.net)',
@@ -246,7 +250,7 @@ export function buildArgs(spec: ClaudeAgentSpec): string[] {
     '--strict-mcp-config',
     `--mcp-config=${spec.mcpConfigPath}`,
     '--setting-sources=',
-    `--settings=${JSON.stringify({ permissions: { deny: denyRules(spec.dataDir) } })}`,
+    `--settings=${JSON.stringify({ permissions: { deny: denyRules(spec.dataDir, spec.configPath) } })}`,
     '--permission-mode=dontAsk',
     `--tools=${tools.join(',')}`,
   ];
