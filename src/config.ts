@@ -230,13 +230,14 @@ export function parseConfig(raw: Partial<Config>, pathEnv = process.env.PATH ?? 
   };
   cfg.apiBaseUrl = claude.baseUrl;
   cfg.claudeBin = claude.bin;
-  cfg.dataDir = expand(cfg.dataDir);
+  cfg.dataDir = resolve(expand(cfg.dataDir)); // agents run in other directories and are handed paths under it
   if (typeof cfg.deleteWorkOnEnd !== 'boolean') throw new Error('config: deleteWorkOnEnd must be true or false');
   // a name goes into an allow rule (`mcp__<name>`) on a comma-separated flag
-  if (!cfg.agentMcpServers || typeof cfg.agentMcpServers !== 'object' || Array.isArray(cfg.agentMcpServers)
-    || !Object.keys(cfg.agentMcpServers).every((name) => /^[A-Za-z0-9_-]+$/.test(name))) {
-    throw new Error('config: agentMcpServers must be an object of MCP servers whose names use only letters, digits, - and _');
+  if (!cfg.agentMcpServers || typeof cfg.agentMcpServers !== 'object' || Array.isArray(cfg.agentMcpServers)) {
+    throw new Error('config: agentMcpServers must be an object of MCP servers');
   }
+  const badName = Object.keys(cfg.agentMcpServers).find((name) => !/^[A-Za-z0-9_-]+$/.test(name));
+  if (badName !== undefined) throw new Error(`config: agentMcpServers name ${JSON.stringify(badName)} may use only letters, digits, - and _`);
   const usableMs = (v: unknown): boolean => typeof v === 'number' && v > 0 && Number.isFinite(new Date(Date.now() + v).getTime());
   if (cfg.agentTimeoutMs !== null && !usableMs(cfg.agentTimeoutMs)) throw new Error('config: agentTimeoutMs must be a positive number of milliseconds, or null for none');
   if (!usableMs(cfg.runTimeoutMs)) throw new Error('config: runTimeoutMs must be a positive number of milliseconds');

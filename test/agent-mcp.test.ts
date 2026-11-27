@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { after, test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.js';
 import { allowRules, buildArgs, ensureEmptyMcpConfig, webNote, type ClaudeAgentSpec } from '../src/engines/claude.js';
@@ -50,9 +50,13 @@ test('a think agent gets neither servers nor the note', () => {
 
 test('a server name that would break the allow rule is refused at load', () => {
   const base = { callers: [] as Config['callers'] };
-  assert.throws(() => parseConfig({ ...base, agentMcpServers: { 'a,b': {} } }), /agentMcpServers/);
+  assert.throws(() => parseConfig({ ...base, agentMcpServers: { search: {}, 'a,b': {} } }), /agentMcpServers name "a,b"/);
   assert.throws(() => parseConfig({ ...base, agentMcpServers: [] as unknown as Record<string, unknown> }), /agentMcpServers/);
   assert.deepEqual(parseConfig(base).agentMcpServers, {});
+});
+
+test('a relative dataDir is made absolute, since agents are started in other directories', () => {
+  assert.equal(parseConfig({ callers: [] as Config['callers'], dataDir: 'data' }).dataDir, resolve('data'));
 });
 
 test('the guide names the extra tools', () => {

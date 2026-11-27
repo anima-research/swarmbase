@@ -57,8 +57,8 @@ the top is optional; \`meta.name\` becomes the run label if you didn't give one.
   - \`profile\` — what the subagent may touch. think: no tools. read: Read/Grep/Glob inside its cwd only,
     plus WebFetch/WebSearch${agentTools}. write: + Edit/Write inside its cwd, and Bash. Default read; your maximum is
     "${opts.maxProfile}". Some sites refuse WebFetch (HTTP 402 or 403): subagents are told to try their other
-    tools on the same address, and a write subagent to open it in a real browser (agent-browser or Playwright,
-    when installed). A read subagent has no browser.${codex ? ` For engine "codex": think = no tools; read = a read-only shell with no network,
+    tools on the same address, and a write subagent to open it in a real browser from Bash (agent-browser or
+    Playwright, when installed). A read subagent has no Bash.${codex ? ` For engine "codex": think = no tools; read = a read-only shell with no network,
     plus the CLI's web search; write = a shell that may write inside its cwd and has network (git, curl).
     Codex subagents have none of the claude tools named above, and are given no instruction about refused pages.` : ''}
   - \`cwd\` — absolute directory the subagent works in. Default: the run's own scratch dir, which is
