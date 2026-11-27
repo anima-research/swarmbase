@@ -59,7 +59,8 @@ the top is optional; \`meta.name\` becomes the run label if you didn't give one.
     "${opts.maxProfile}". Some sites refuse WebFetch (HTTP 402 or 403): subagents are told to try their other
     tools on the same address, and a write subagent to open it in a real browser (agent-browser or Playwright,
     when installed). A read subagent has no browser.${codex ? ` For engine "codex": think = no tools; read = a read-only shell with no network,
-    plus the CLI's web search; write = a shell that may write inside its cwd and has network (git, curl).` : ''}
+    plus the CLI's web search; write = a shell that may write inside its cwd and has network (git, curl).
+    Codex subagents have none of the claude tools named above, and are given no instruction about refused pages.` : ''}
   - \`cwd\` — absolute directory the subagent works in. Default: the run's own scratch dir, which is
     deleted when the run ends (start the run with \`keepWork: true\` to keep it; \`resume\` gets a fresh one).
     Allowed roots for you: ${opts.cwdRoots.length ? opts.cwdRoots.join(', ') : 'none (scratch dir only)'}.

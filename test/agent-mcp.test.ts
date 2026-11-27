@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { parseConfig, type Config } from '../src/config.js';
 import { allowRules, buildArgs, ensureEmptyMcpConfig, webNote, type ClaudeAgentSpec } from '../src/engines/claude.js';
+import { denyPaths } from '../src/engines/codex.js';
 import { guideText } from '../src/guide.js';
 import { RunManager } from '../src/runs.js';
 import { RunStore, type RunMeta } from '../src/store.js';
@@ -28,11 +29,15 @@ test('a read agent is allowed the listed servers and told what to do with a refu
   assert.deepEqual(flag(args, 'allowedTools')!.split(','), ['Read(//work/**)', 'WebFetch', 'WebSearch', 'mcp__search']);
   const note = flag(args, 'append-system-prompt')!;
   assert.match(note, /refuse WebFetch \(HTTP 402 or 403/);
+  assert.match(note, /Try your other fetch and search tools on the same address/);
   assert.doesNotMatch(note, /browser/);
 });
 
 test('only a write agent, which has Bash, is pointed at a browser', () => {
-  assert.match(flag(buildArgs(spec({ profile: 'write' })), 'append-system-prompt')!, /agent-browser.*Playwright/);
+  const args = buildArgs(spec({ profile: 'write' }));
+  assert.match(flag(args, 'append-system-prompt')!, /agent-browser.*Playwright/);
+  assert.equal(flag(args, 'mcp-config'), '/data/agent-mcp.json');
+  assert.ok(flag(args, 'allowedTools')!.split(',').includes('mcp__search'));
   assert.equal(webNote('read').includes('Bash'), false);
 });
 
@@ -80,7 +85,7 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","total
   let done!: () => void;
   const ended = new Promise<void>((resolve) => { done = resolve; });
   const runs = new RunManager(cfg, store, ensureEmptyMcpConfig(dataDir), { runEnded: (_m: RunMeta) => done() });
-  runs.start({
+  const meta = runs.start({
     caller: cfg.callers[0], args: null, label: null, defaults: {}, budgetUsd: 5, budgetTokens: 0, resumeFrom: null,
     script: `await agent('one', { profile: 'read' }); await agent('two', { profile: 'think' }); return 1;`,
   });
@@ -92,5 +97,13 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","total
   assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mcpServers: servers });
   assert.equal(statSync(file).mode & 0o777, 0o600);
   // each agent's browser session is its own, and closes itself when left idle
-  assert.match(readFileSync(`${argsLog}.env`, 'utf8'), /^swarmbase-r\w+-1 600000\nswarmbase-r\w+-2 600000\n$/);
+  assert.equal(readFileSync(`${argsLog}.env`, 'utf8'), `swarmbase-${meta.id}-1 600000\nswarmbase-${meta.id}-2 600000\n`);
+
+  // the servers are taken out of the config: the next boot leaves none of them, or their keys, in the file
+  new RunManager(parseConfig({ dataDir, callers: [] as Config['callers'] }), store, ensureEmptyMcpConfig(dataDir), { runEnded: () => {} });
+  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { mcpServers: {} });
+});
+
+test('codex agents are denied the file that holds the servers', () => {
+  assert.ok(denyPaths('/data', '/data/runs/r1/agents/1.home').includes('/data/agent-mcp.json'));
 });

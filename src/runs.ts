@@ -120,7 +120,7 @@ export class RunManager {
   ) {
     this.globalSem = new Semaphore(cfg.maxConcurrentAgents);
     this.agentMcpServers = Object.keys(cfg.agentMcpServers);
-    this.agentMcpConfigPath = this.agentMcpServers.length ? ensureAgentMcpConfig(cfg.dataDir, cfg.agentMcpServers) : emptyMcpConfigPath;
+    this.agentMcpConfigPath = ensureAgentMcpConfig(cfg.dataDir, cfg.agentMcpServers);
   }
 
   /** Compile-only syntax check (nothing executes), so `run` can refuse a broken script up front. */

@@ -213,7 +213,7 @@ export function webNote(profile: Profile): string {
   const browser = profile === 'write'
     ? ' If they are refused too, or the page needs JavaScript or a click to show what you need, drive a real browser from Bash when one is installed: `agent-browser` (`command -v agent-browser`, then `agent-browser --help`), or else Playwright.'
     : '';
-  return 'Reading the web: some sites refuse WebFetch (HTTP 402 or 403, or a page with nothing on it). That is the site refusing this fetcher, not a missing page. '
+  return 'Reading the web: some sites refuse WebFetch (HTTP 402 or 403, or a page with nothing on it). Often that is the site refusing this fetcher, not a missing page. '
     + 'Try your other fetch and search tools on the same address before you call it unreachable.' + browser
     + ' When a page stays closed, say so, and name what you tried.';
 }

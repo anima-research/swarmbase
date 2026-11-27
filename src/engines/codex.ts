@@ -114,7 +114,7 @@ export function denyPaths(dataDir: string, homeDir: string, extra: string[] = []
   const roots = [cwd, homeDir].filter((r): r is string => !!r).map((r) => r.replace(/\/+$/, ''));
   const ancestorOfRoot = (p: string) => !/[*?[]/.test(p) && roots.some((r) => r === p || r.startsWith(p + '/'));
   return [...new Set([
-    `${d}/*.token`, `${d}/*.key`, `${d}/config.json`, `${d}/config.json.*`, `${d}/outbox.json`, `${d}/live-agents.json`,
+    `${d}/*.token`, `${d}/*.key`, `${d}/config.json`, `${d}/config.json.*`, `${d}/outbox.json`, `${d}/live-agents.json`, `${d}/agent-mcp.json`,
     ...runRecordPaths(d),
     `${homeDir}/config.toml`, // the meter bearer; the dir itself stays readable so `bash -l` finds an (absent) rc file quietly
     ...extra,

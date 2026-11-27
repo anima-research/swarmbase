@@ -94,8 +94,15 @@ so no host-realm object is reachable from the script. A watchdog fails a run who
 }
 ```
 
-`agentMcpServers` is in the CLI's own `mcpServers` format. Each subagent's CLI starts the servers itself, with the
-subagent's minimal environment plus the entry's `env`. What their tools spend is not counted against a run's budget.
+`agentMcpServers` is in the CLI's own `mcpServers` format. Each subagent's CLI starts the servers itself, in the
+subagent's environment plus the entry's `env`, so a server is handed the caller's API key. Every tool of a listed
+server is allowed to `read` and `write` subagents, and none of a profile's confinement applies to it: not the cwd
+scoping, not the `*.ts.net` deny. List only servers you would trust with that key, and whose every tool you would
+give a `read` subagent.
+- Each server's tool definitions are added to the context of every such subagent, used or not.
+- What the tools spend is not counted against a run's budget.
+- An entry the CLI cannot parse, or a server that fails to start, is skipped: the subagent runs without it. The
+  `system`/`init` line of an agent's stream lists the servers and their status.
 
 To add a caller:
 1. Generate a token: `openssl rand -hex 24 > ~/.swarmbase/mcpl-<name>.token`.
@@ -180,7 +187,7 @@ as `meter: upstream unable to verify the first certificate` with that hint.
 | profile | CLI tools | confinement |
 |---|---|---|
 | think | none (`--tools=`); StructuredOutput only when a schema is given | — |
-| read | Read, Grep, Glob, WebFetch, WebSearch, and the tools of `agentMcpServers` | `Read(//<cwd>/**)`, which also governs Grep and Glob; reads outside are denied |
+| read | Read, Grep, Glob, WebFetch, WebSearch, and the tools of `agentMcpServers` | `Read(//<cwd>/**)`, which also governs Grep and Glob; reads outside are denied. The `agentMcpServers` tools are not confined |
 | write | + Edit, Write, Bash | `Edit`/`Write(//<cwd>/**)`; **Bash is not confined**, so trusted callers only |
 
 Every claude subagent also runs with:
