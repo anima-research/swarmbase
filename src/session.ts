@@ -85,6 +85,21 @@ export class Session {
     private readonly log: (line: string) => void,
   ) {
     this.conn = McplConnection.fromWebSocket(ws as never);
+    // A line that isn't JSON, or a socket error, reaches the connection as
+    // 'error'. With no listener, EventEmitter throws it from the readline
+    // callback, past serve()'s try/catch, and the process handler stops
+    // every caller's agents (#4). A bad frame ends only this caller's session.
+    this.conn.on('error', (e: Error) => {
+      this.log(`${this.caller.name}: ${e.message}`);
+      this.close();
+    });
+    // mcpl-core 0.2.x reads lines with readline, which re-emits a stream
+    // error (a socket error, such as a client's invalid WebSocket frame) as
+    // its own 'error', with no listener, so it would still throw. The
+    // connection reports the same error itself, to the listener above.
+    // mcpl-core's main reads without readline (unreleased as of 0.3.0); then
+    // there's no `rl`, and this line does nothing.
+    (this.conn as unknown as { rl?: { on(event: 'error', fn: () => void): void } }).rl?.on('error', () => {});
   }
 
   close(): void {
