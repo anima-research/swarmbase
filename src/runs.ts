@@ -20,7 +20,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { isUnder, profileRank, type CallerPolicy, type Config, type EngineName, type Profile } from './config.js';
-import { killAllAgentGroups, runClaudeAgent, readApiKey, type Activity, type AgentOutcome, KILL_GRACE_MS } from './engines/claude.js';
+import { ensureAgentMcpConfig, killAllAgentGroups, runClaudeAgent, readApiKey, type Activity, type AgentOutcome, KILL_GRACE_MS } from './engines/claude.js';
 import { runCodexAgent, strictSchemaProblem } from './engines/codex.js';
 import type { UsageMeter } from './meter.js';
 import { Semaphore } from './semaphore.js';
@@ -106,6 +106,9 @@ interface ResolvedAgent {
 export class RunManager {
   private active = new Map<string, ActiveRun>();
   private globalSem: Semaphore;
+  /** Names of config.agentMcpServers, and the file that hands them to the CLI. */
+  private readonly agentMcpServers: string[];
+  private readonly agentMcpConfigPath: string;
 
   constructor(
     private readonly cfg: Config,
@@ -116,6 +119,8 @@ export class RunManager {
     private readonly meter: UsageMeter | null = null,
   ) {
     this.globalSem = new Semaphore(cfg.maxConcurrentAgents);
+    this.agentMcpServers = Object.keys(cfg.agentMcpServers);
+    this.agentMcpConfigPath = ensureAgentMcpConfig(cfg.dataDir, cfg.agentMcpServers);
   }
 
   /** Compile-only syntax check (nothing executes), so `run` can refuse a broken script up front. */
@@ -655,7 +660,9 @@ export class RunManager {
           ...common,
           apiBaseUrl: this.cfg.engines.claude.baseUrl,
           claudeBin: this.cfg.engines.claude.bin,
-          emptyMcpConfigPath: this.emptyMcpConfigPath,
+          configPath: this.cfg.configPath,
+          mcpConfigPath: a.profile === 'think' ? this.emptyMcpConfigPath : this.agentMcpConfigPath,
+          mcpServers: a.profile === 'think' ? [] : this.agentMcpServers,
         }, slot.ac.signal, onActivity);
       }
     } catch (e) {

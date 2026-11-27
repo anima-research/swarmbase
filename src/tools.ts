@@ -138,6 +138,7 @@ export class SwarmTools implements ToolHost {
           perRun: this.cfg.perRunConcurrency,
           agentTimeoutMs: this.cfg.agentTimeoutMs,
           runTimeoutMs: this.cfg.runTimeoutMs,
+          agentTools: Object.keys(this.cfg.agentMcpServers),
           cwdRoots: caller.cwdRoots,
         }));
         default: return text(`Unknown tool: ${name}`, true);

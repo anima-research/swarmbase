@@ -1,8 +1,10 @@
 /**
  * SwarmBase configuration — one JSON file (default ~/.swarmbase/config.json,
- * override with SWARMBASE_CONFIG). Secrets never live in it: callers are
+ * override with SWARMBASE_CONFIG). Secrets do not belong in it: callers are
  * identified by the sha256 of their MCPL token, and each caller's gate token
- * is read from its own 0600 file at agent launch.
+ * is read from its own 0600 file at agent launch. The one place a key can end
+ * up in it is the `env` of an agentMcpServers entry, so agents are denied the
+ * file wherever it sits.
  */
 import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -105,6 +107,9 @@ export interface Config {
   /** Extra/override model price rows (USD per MTok) for estimating killed agents' spend
    *  (and all of a codex agent's spend: the Codex CLI reports tokens, not cost). */
   prices?: Record<string, { in: number; out: number; cacheRead: number; cacheWrite: number; cacheWrite1h: number }>;
+  /** MCP servers every claude subagent with tools (`read`, `write`) is started with, in the CLI's own
+   *  `mcpServers` format, e.g. a search or page-fetch server. Their use is not counted against a run's budget. */
+  agentMcpServers: Record<string, unknown>;
   dashboard: DashboardAccess;
   callers: CallerPolicy[];
 }
@@ -128,6 +133,7 @@ const DEFAULTS: Omit<Config, 'callers'> = {
     codex: { bin: 'codex', baseUrl: null, sandbox: 'bwrap', maxTokensDefault: 3_000_000, maxTokensMax: 3_000_000, extraRoBinds: [] },
   },
   deleteWorkOnEnd: true,
+  agentMcpServers: {},
   dashboard: { viewerLogins: [], adminLogins: [] },
 };
 
@@ -226,8 +232,14 @@ export function parseConfig(raw: Partial<Config>, pathEnv = process.env.PATH ?? 
   };
   cfg.apiBaseUrl = claude.baseUrl;
   cfg.claudeBin = claude.bin;
-  cfg.dataDir = expand(cfg.dataDir);
+  cfg.dataDir = resolve(expand(cfg.dataDir)); // agents run in other directories and are handed paths under it
   if (typeof cfg.deleteWorkOnEnd !== 'boolean') throw new Error('config: deleteWorkOnEnd must be true or false');
+  // a name goes into an allow rule (`mcp__<name>`) on a comma-separated flag
+  if (!cfg.agentMcpServers || typeof cfg.agentMcpServers !== 'object' || Array.isArray(cfg.agentMcpServers)) {
+    throw new Error('config: agentMcpServers must be an object of MCP servers');
+  }
+  const badName = Object.keys(cfg.agentMcpServers).find((name) => !/^[A-Za-z0-9_-]+$/.test(name));
+  if (badName !== undefined) throw new Error(`config: agentMcpServers name ${JSON.stringify(badName)} may use only letters, digits, - and _`);
   const usableMs = (v: unknown): boolean => typeof v === 'number' && v > 0 && Number.isFinite(new Date(Date.now() + v).getTime());
   if (cfg.agentTimeoutMs !== null && !usableMs(cfg.agentTimeoutMs)) throw new Error('config: agentTimeoutMs must be a positive number of milliseconds, or null for none');
   if (!usableMs(cfg.runTimeoutMs)) throw new Error('config: runTimeoutMs must be a positive number of milliseconds');
